@@ -93,6 +93,16 @@ client.on('message', async message =>
 		getQueue(message, serverQueue);
 		return;
 	}
+	else if (args[0] == `${prefix}shuffle`)
+	{
+		shuffle(message, serverQueue);
+		return;
+	}
+	else if (args[0] == `${prefix}loop`)
+	{
+		loop(message, serverQueue);
+		return;
+	}
 	else if (args[0] == `${prefix}leave`)
 	{
 		leave(message, serverQueue);
@@ -100,7 +110,7 @@ client.on('message', async message =>
 	}
 	else
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`Command not found, please refer to ${prefix}help for more information.`);
 		return message.channel.send(embed);
 	}
@@ -108,8 +118,8 @@ client.on('message', async message =>
 
 client.on('messageReactionAdd', (reaction, user) =>
 {
-	var message = reaction.message;
-	var emoji = reaction.emoji;
+	let message = reaction.message;
+	let emoji = reaction.emoji;
 
 	if (!message.author.bot) // Only handle reactions on our messages
 	{
@@ -132,9 +142,9 @@ client.on('messageReactionAdd', (reaction, user) =>
 	// Queue page turning
 	if (embed.title.includes(`Current queue`))
 	{
-		var pageCounters = embed.footer.text.split("/");
-		var currentPage = parseInt(pageCounters[0]) - 1;
-		var numPages = parseInt(pageCounters[1]);
+		let pageCounters = embed.footer.text.split("/");
+		let currentPage = parseInt(pageCounters[0]) - 1;
+		let numPages = parseInt(pageCounters[1]);
 
 		if (emoji.name === EMOTE_PREV)
 		{
@@ -171,24 +181,23 @@ async function queueSong(message, serverQueue)
 	const contentToPlay = args.slice(1).join(" ");
 
 	// Error checking
-	const voiceChannel = message.member.voice.channel;
-	if (!voiceChannel)
+	if (!channelQueueCheck(message, serverQueue, false, false))
 	{
-		var embed = new MessageEmbed()
-			.setTitle("You need to be in a voice channel to use this command.");
-		return message.channel.send(embed);
+		return;
 	}
+	
+	const voiceChannel = message.member.voice.channel;
 
 	const permissions = voiceChannel.permissionsFor(message.client.user);
 	if (!permissions.has("CONNECT") || !permissions.has("SPEAK"))
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle("Lord please granteth me the permission to joineth and speaketh in thy holy voice channels.");
 		return message.channel.send(embed);
 	}
 
 	// Resolve the requested content into a list of songs to add
-	var songs = await getSongsInfo(contentToPlay);
+	let songs = await getSongsInfo(message, contentToPlay);
 
 	if (songs.length === 0)
 	{
@@ -196,7 +205,7 @@ async function queueSong(message, serverQueue)
 	}
 
 	// Set the requester
-	for (var song of songs)
+	for (let song of songs)
 	{
 		song.addedBy = message.author.id;
 	}
@@ -211,8 +220,9 @@ async function queueSong(message, serverQueue)
 			voiceChannel: voiceChannel,
 			connection: null,
 			songs: [],
-			volume: 10,
+			volume: 5,
 			playing: -1,
+			looping: false,
 		};
 
 		// Add to queueMap
@@ -221,17 +231,21 @@ async function queueSong(message, serverQueue)
 		serverQueue = newQueue;
 		
 		// Join the voicechat
-		newQueue.connection = await voiceChannel.join()
-			.catch(error => 
-				{
-					queueMap.delete(message.guild.id);
+		try
+		{
+			newQueue.connection = await voiceChannel.join();
+		}
+		catch (error)
+		{
+			queueMap.delete(message.guild.id);
+			newQueue.connection.delete();
 
-					var embed = new MessageEmbed()
-						.setTitle("Unexpected error joining voice chat. Please try again or bonk Frosty.")
-						.setDescription("Error: " + error);
-					return message.channel.send(embed);
-				}
-			);
+			let embed = new MessageEmbed()
+				.setTitle("Unexpected error joining voice chat.")
+				.setDescription("Error: " + error)
+				.setFooter("Please try again or bonk Frosty");
+			return message.channel.send(embed);
+		}
 	}
 
 	// Add the songs
@@ -243,14 +257,14 @@ async function queueSong(message, serverQueue)
 	{
 		if (!isQueuePlaying(serverQueue)) // don't send queued message because we're gonna play this song right away
 		{
-			var embed = new MessageEmbed()
+			let embed = new MessageEmbed()
 				.setTitle(`Queued ${songs[0].title}.`);
 			message.channel.send(embed);
 		}
 	}
 	else
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`Queued ${songs.length} songs`);
 		message.channel.send(embed);
 	}
@@ -262,72 +276,89 @@ async function queueSong(message, serverQueue)
 	}
 }
 
-async function getSongsInfo(contentToPlay)
+async function getSongsInfo(message, contentToPlay)
 {
-	var songs = [];
+	let songs = [];
 
-	// Youtube
-	if (matchYoutubeUrl(contentToPlay))
+	// Youtube - Single vid
+	if (ytdl.validateURL(contentToPlay))
 	{
-		// Single vid
-		if (ytdl.validateURL(contentToPlay))
+		console.log("Found single vid url");
+		try
 		{
 			songInfo = await ytdl.getInfo(contentToPlay);
+		}
+		catch (error)
+		{
+			let embed = new MessageEmbed()
+				.setTitle("Invalid video link")
+				.setDescription(error);
+			message.channel.send(embed);
+			return songs;
+		}
+		
+		console.log(songInfo);
+		const song =
+		{
+			title: songInfo.videoDetails.title,
+			url: songInfo.videoDetails.video_url,
+		};
+		songs.push(song);
+
+		return songs;
+	}
+	
+	// Youtube - Playlist
+	if (ytpl.validateID(contentToPlay))
+	{
+		const playistID = await ytpl.getPlaylistID(contentToPlay);
+		var playlist;
+		try
+		{
+			playlist = await ytpl(playistID, { limit : Infinity });
+		}
+		catch (error)
+		{
+			let embed = new MessageEmbed()
+				.setTitle("Invalid playlist link")
+				.setDescription(error);
+			message.channel.send(embed);
+			return songs;
+		}
+
+		for(let songInfo of playlist.items)
+		{
 			const song =
 			{
-				title: songInfo.videoDetails.title,
-				url: songInfo.videoDetails.video_url,
+				title: songInfo.title,
+				url: songInfo.shortUrl,
 			};
 			songs.push(song);
 		}
 
-		// Playlist
-		else
-		{
-			const playistID = await ytpl.getPlaylistID(contentToPlay);
-			const playlist = await ytpl(playistID, { limit : Infinity })
-				.catch((error) => 
-				{
-					var embed = new MessageEmbed()
-						.setTitle("Invalid link/playlist");
-					return message.channel.send(embed);
-				});
-
-			for(var songInfo of playlist.items)
-			{
-				const song =
-				{
-					title: songInfo.title,
-					url: songInfo.shortUrl,
-				};
-				songs.push(song);
-			}
-		}
+		return songs;
 	}
 
 	// Title search
-	else
+	console.log("Searching for video by title");
+
+	// Get song from title
+	const {videos} = await yts(contentToPlay);
+	if (!videos.length)
 	{
-		console.log("Searching for video by title");
-
-		// Get song from title
-		const {videos} = await yts(contentToPlay);
-		if (!videos.length)
-		{
-			var embed = new MessageEmbed()
-				.setTitle("No songs found.");
-			return message.channel.send(embed);
-		}
-
-		const song =
-		{
-			title: videos[0].title,
-			url: videos[0].url,
-		};
-
-		songs.push(song);
+		let embed = new MessageEmbed()
+			.setTitle("No songs found.");
+		message.channel.send(embed);
+		return songs;
 	}
 
+	const song =
+	{
+		title: videos[0].title,
+		url: videos[0].url,
+	};
+
+	songs.push(song);
 	return songs;
 }
 
@@ -336,7 +367,7 @@ function playSong(serverQueue, index)
 	serverQueue.playing = index;
 	if (serverQueue.playing < 0 || serverQueue.playing >= serverQueue.songs.length)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`Error playing song: song index in queue oob.`);
 		return serverQueue.textChannel.send(embed);
 	}
@@ -346,7 +377,7 @@ function playSong(serverQueue, index)
 	if (!song)
 	{
 		// Shouldn't get here but just in case
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`Error playing song. Skipping to next...`);
 		serverQueue.textChannel.send(embed);
 
@@ -355,7 +386,7 @@ function playSong(serverQueue, index)
 		return;
 	}
 
-	var embed = new MessageEmbed()
+	let embed = new MessageEmbed()
 		.setTitle("Now playing")
 		.setDescription(`**[${song.title}](${song.url})** [<@${song.addedBy}>]`);
 	serverQueue.textChannel.send(embed);
@@ -371,12 +402,11 @@ function playSong(serverQueue, index)
 		.on("error", error => 
 		{
 			const errorStr = "Error encountered while playing video: " + error.toString().replace('Error: input stream: ', '');
-			var embed = new MessageEmbed()
+			let embed = new MessageEmbed()
 				.setTitle(errorStr);
 			serverQueue.textChannel.send(embed);
 
 			playNextSong(serverQueue);
-			return;
 		});
 
 	dispatcher.setVolumeLogarithmic(serverQueue.volume / 5);
@@ -384,12 +414,19 @@ function playSong(serverQueue, index)
 
 function playNextSong(serverQueue)
 {
-	const nextSongIndex = serverQueue.playing + 1;
+	let nextSongIndex = serverQueue.playing + 1;
 	if (nextSongIndex >= serverQueue.songs.length)
 	{
-		var embed = new MessageEmbed()
-			.setTitle(`Reach the end of queue.`);
-		return serverQueue.textChannel.send(embed);
+		if (serverQueue.looping)
+		{
+			nextSongIndex = 0;
+		}
+		else
+		{
+			let embed = new MessageEmbed()
+				.setTitle(`Reach the end of queue.`);
+			return serverQueue.textChannel.send(embed);
+		}
 	}
 
 	playSong(serverQueue, nextSongIndex);
@@ -477,7 +514,7 @@ function getQueue(message, serverQueue)
 	const numSongs = serverQueue.songs.length;
 	if (numSongs === 0)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle("The queue is currently empty.");
 		return message.channel.send(embed);
 	}
@@ -485,9 +522,14 @@ function getQueue(message, serverQueue)
 	// Display the page with currently played song
 	const currentPage = Math.floor(serverQueue.playing / numSongsPerQueuePage);
 	const queuedSongs = parseQueue(serverQueue, currentPage);
+	if (queuedSongs === "")
+	{
+		return;
+	}
+
 	const numPages = Math.ceil(serverQueue.songs.length / numSongsPerQueuePage);
 
-	var embed = new MessageEmbed()
+	let embed = new MessageEmbed()
 		.setTitle(`Current queue for #${message.channel.name}`)
 		.setDescription(queuedSongs)
 		.setFooter(`${currentPage + 1}/${numPages}`);
@@ -508,8 +550,13 @@ function getQueue(message, serverQueue)
 function switchQueuePage(message, serverQueue, pageIndex)
 {
 	const queuedSongs = parseQueue(serverQueue, pageIndex);
+	if (queuedSongs === "")
+	{
+		return;
+	}
+
 	const numPages = Math.ceil(serverQueue.songs.length / numSongsPerQueuePage);
-	var embed = new MessageEmbed()
+	let embed = new MessageEmbed()
 		.setTitle(`Current queue for #${message.channel.name}`)
 		.setDescription(queuedSongs)
 		.setFooter(`${pageIndex + 1}/${numPages}`);
@@ -517,12 +564,48 @@ function switchQueuePage(message, serverQueue, pageIndex)
 	message.edit(embed);
 }
 
+function shuffle(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue))
+	{
+		return;
+	}
+
+	for (let i = serverQueue.songs.length - 1; i > 0; i--)
+	{
+		if (i == serverQueue.playing)
+		{
+			// Don't shuffle the current song
+			continue;
+		}
+
+        const j = Math.floor(Math.random() * (i + 1));
+        [serverQueue.songs[i], serverQueue.songs[j]] = [serverQueue.songs[j], serverQueue.songs[i]];
+    }
+
+	message.react(EMOTE_CONFIRM);
+}
+
+function loop(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue))
+	{
+		return;
+	}
+
+	serverQueue.looping = !serverQueue.looping;
+
+	let embed = new MessageEmbed()
+		.setTitle("Looping for this queue is now " + (serverQueue.looping ? "**enabled**" : "**disabled**"));
+	message.channel.send(embed);
+}
+
 async function leave(message, serverQueue)
 {
 	if (!message.guild.me.voice.channel)
 	{
-		var embed = new MessageEmbed()
-			.setTitle(`I'm not currently in a voice channel.`);
+		let embed = new MessageEmbed()
+			.setTitle(`I am not currently in a voice channel.`);
 		return message.channel.send(embed);;
 	}
 
@@ -531,19 +614,27 @@ async function leave(message, serverQueue)
 }
 
 /// Helper functions /// 
-function channelQueueCheck(message, serverQueue, dispatcherCheck = false)
+function channelQueueCheck(message, serverQueue, dispatcherCheck = false, connectionCheck = true)
 {
 	if (!message.member.voice.channel)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`You need to be in a voice channel to use this command.`);
 		message.channel.send(embed);
 		return false;
 	}
 	
-	if (!serverQueue)
+	if (message.guild.me.voice.channel && message.guild.me.voice.channel != message.member.voice.channel)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
+			.setTitle(`This bot is currently being used in another channel.`);
+		message.channel.send(embed);
+		return false;
+	}
+
+	if (connectionCheck && !serverQueue)
+	{
+		let embed = new MessageEmbed()
 			.setTitle(`No song has been queued.`);
 		message.channel.send(embed);
 		return false;
@@ -551,7 +642,7 @@ function channelQueueCheck(message, serverQueue, dispatcherCheck = false)
 
 	if (dispatcherCheck && !serverQueue.connection.dispatcher)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`No song is currently playing.`);
 		message.channel.send(embed);
 		return false;
@@ -567,17 +658,18 @@ function parseQueue(serverQueue, pageIndex)
 
 	if (pageIndex < 0 || pageIndex >= numPages)
 	{
-		var embed = new MessageEmbed()
+		let embed = new MessageEmbed()
 			.setTitle(`Error displaying queue: page index oob`);
-		return message.channel.send(embed);
+		message.channel.send(embed);
+		return "";
 	}
 
-	var queuedSongs = "";
+	let queuedSongs = "";
 	
 	const startIndex = pageIndex * numSongsPerQueuePage;
 	const endIndex = Math.min(startIndex + numSongsPerQueuePage - 1, numSongs - 1);
 
-	for (var songIndex = startIndex; songIndex <= endIndex; ++songIndex)
+	for (let songIndex = startIndex; songIndex <= endIndex; ++songIndex)
 	{
 		const song = serverQueue.songs[songIndex];
 		const bIsCurrentSong = (songIndex === serverQueue.playing) && isQueuePlaying(serverQueue);
@@ -598,27 +690,6 @@ function parseQueue(serverQueue, pageIndex)
 	return queuedSongs;
 }
 
-function matchYoutubeUrl(url)
-{
-	var p1 = /^.*(youtu.be\/|youtube.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))((\w|-){11})(?:\S+)?$/;
-	var p2 = /^.*(youtu.be\/|list=)([^#\&\?]*).*/;
-	if(url.match(p1))
-	{
-		if (url.match(p1)[1])
-		{
-			return true;
-		}
-	}
-	if(url.match(p2))
-	{
-		if (url.match(p2)[1])
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
 function isQueuePlaying(serverQueue)
 {
 	return serverQueue.connection.dispatcher != null;
@@ -636,6 +707,5 @@ function cleanUpServerState(serverQueue)
 	queueMap.delete(message.guild.id);
 }
 
-// TODO: Check if member content/vids that it cant played breaks anything
-// TODO: Shuffle
-// TODO: Loop
+// TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
+// TODO: Personal playlists, investigate DB usage probably
