@@ -329,7 +329,8 @@ async function queueSong(message, serverQueue)
 	// UI messages
 	if (songs.length === 1)
 	{
-		if (!isQueuePlaying(serverQueue)) // don't send queued message because we're gonna play this song right away
+		// send queue message if queue is playing, otherwise we're gonna play this song right away
+		if (isQueuePlaying(serverQueue)) 
 		{
 			let embed = new MessageEmbed()
 				.setTitle(`Queued ${songs[0].title}.`);
