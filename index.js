@@ -78,9 +78,15 @@ client.on('message', async message =>
 		return;
 	}
 
-	// Retrieve the prefix for this server
+	// Does this command start with this bot being mention?
+	const myId = message.guild.me.id;
+	const startsWithMention = message.content.startsWith(`<@${myId}>`) || message.content.startsWith(`<@!${myId}>`);
+
+	// Does this command start with the set prefix?
 	const prefix = getPrefixForServer(message.guild);
-	if (!message.content.startsWith(prefix))
+	const startsWithPrefix = message.content.startsWith(prefix);
+	
+	if (!startsWithMention && !startsWithPrefix)
 	{
 		return;
 	}
@@ -838,11 +844,18 @@ function getPrefixForServer(server)
 
 function getCommandFromMessage(message)
 {
-	const args = message.content.split(" ");
-	let commandName = args[0];
+	let commandName;
 	const prefix = getPrefixForServer(message.guild);
 
-	commandName = commandName.replace(prefix, "");
+	if (message.content.startsWith(prefix))
+	{
+		commandName = message.content.slice(prefix.length);
+	}
+	else
+	{
+		const args = message.content.split(" ");
+		commandName = args.slice(1).join(" ");
+	}
 
 	// Convert aliases to names
 	for (let command of commands)
@@ -863,4 +876,3 @@ function getCommandFromMessage(message)
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
 // TODO: Personal playlists, investigate DB usage probably
-// TODO: Add ~help
