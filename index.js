@@ -828,3 +828,4 @@ function getCommandFromMessage(message)
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
 // TODO: Personal playlists, investigate DB usage probably
+// TODO: Add ~help
