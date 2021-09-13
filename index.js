@@ -1,6 +1,7 @@
 /// Dependencies
 const Discord = require('discord.js');
 const { Permissions } = require('discord.js');
+const fs = require('fs');
 
 const ytdl = require('ytdl-core');
 const yts = require("yt-search");
@@ -31,19 +32,22 @@ const prefixMap = new Map();
 var client = new Discord.Client();
 try 
 {
-	// Look for env variable, if that doesn't exist then pull from local config
-	const
-	{
-		token,
-	} = require('./config.json');
+	let token;
 
-	if (process.env.DJS_TOKEN === "" && token === "")
+	// Look for env variable, if that doesn't exist then pull from local config
+	if (!process.env.DJS_TOKEN)
+	{
+		const data = fs.readFileSync("./config.json");
+		const obj = JSON.parse(data);
+		token = obj.token;
+	}
+
+	if (!process.env.DJS_TOKEN && token === "")
 	{
 		throw ("No token found.");
 	}
 
-	console.log("Detected env var token: " + process.env.DJS_TOKEN);
-	client.login(process.env.DJS_TOKEN != "" ? process.env.DJS_TOKEN : token);
+	client.login(process.env.DJS_TOKEN ? process.env.DJS_TOKEN : token);
 }
 catch (error)
 {
