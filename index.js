@@ -174,6 +174,12 @@ client.on('message', async message =>
 			return;
 		}
 
+		case `help`:
+		{
+			help(message, serverQueue);
+			return;
+		}
+
 		default:
 		{
 			let embed = new MessageEmbed()
@@ -684,6 +690,30 @@ async function leave(message, serverQueue)
 
 	await message.guild.me.voice.channel.leave();
 	message.react(EMOTE_CONFIRM);
+}
+
+function help(message, serverQueue)
+{
+	let helpStr = "";
+	for (let command of commands)
+	{
+		helpStr += command.name;
+		if (command.aliases.length > 0)
+		{
+			helpStr += " (";
+			for (let alias of command.aliases)
+			{
+				helpStr += alias + ", ";
+			}
+			helpStr = helpStr.substring(0, helpStr.length - 2);
+			helpStr += ")";
+		}
+		helpStr += " | "
+	}
+
+	let embed = new MessageEmbed()
+		.setTitle("List of commands");
+	message.channel.send(embed);
 }
 
 /// Logistics ///
