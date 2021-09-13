@@ -44,7 +44,7 @@ try
 		throw ("No token found.");
 	}
 
-	client.login(process.env.DJS_TOKEN === "" ? process.env.DJS_TOKEN : token);
+	client.login(process.env.DJS_TOKEN != "" ? process.env.DJS_TOKEN : token);
 }
 catch (error)
 {
