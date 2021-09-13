@@ -1,10 +1,12 @@
 const Discord = require('discord.js');
 
-const
-{
-	prefix,
-	token,
-} = require('./config.json');
+// const
+// {
+// 	prefix,
+// 	token,
+// } = require('./config.json');
+
+const prefix = '~';
 
 const ytdl = require('ytdl-core');
 const yts = require("yt-search");
@@ -29,7 +31,7 @@ const numSongsPerQueuePage = 10;
 //////////////////////////////////////////////////////////////////////////////
 /// Login ///
 const client = new Discord.Client();
-client.login(token);
+client.login(process.env.DJS_TOKEN);
 
 client.on('ready', () =>
 {
