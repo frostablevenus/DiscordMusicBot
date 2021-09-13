@@ -28,7 +28,7 @@ const prefixMap = new Map();
 /// ---------------------------------------------------------------------- ///
 //////////////////////////////////////////////////////////////////////////////
 /// Login ///
-var client;
+var client = new Discord.Client();
 try 
 {
 	// Look for env variable, if that doesn't exist then pull from local config
@@ -36,8 +36,6 @@ try
 	{
 		token,
 	} = require('./config.json');
-
-	client = new Discord.Client();
 
 	if (process.env.DJS_TOKEN === "" && token === "")
 	{
