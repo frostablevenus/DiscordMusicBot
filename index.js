@@ -697,7 +697,7 @@ function help(message, serverQueue)
 	let helpStr = "";
 	for (let command of commands)
 	{
-		helpStr += command.name;
+		helpStr += "**" + command.name;
 		if (command.aliases.length > 0)
 		{
 			helpStr += " (";
@@ -708,11 +708,12 @@ function help(message, serverQueue)
 			helpStr = helpStr.substring(0, helpStr.length - 2);
 			helpStr += ")";
 		}
-		helpStr += " | "
+		helpStr += "**: " + command.description + "\n\n";
 	}
 
 	let embed = new MessageEmbed()
-		.setTitle("List of commands");
+		.setTitle("List of commands")
+		.setDescription(helpStr);
 	message.channel.send(embed);
 }
 

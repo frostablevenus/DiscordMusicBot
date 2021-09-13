@@ -7,52 +7,62 @@
 			"permissionsRequired": 
 			[
 				"0x0000002000"
-			]
+			],
+			"description" : "Changes the prefix of the bot."
 		},
 		{
 			"name" : "play",
 			"aliases" : ["p"],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Plays/queues a song or a playlist. Usage: \"play [title/URL]\". Only youtube links are supported (for now)."
 		},
 		{
 			"name" : "pause",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Pauses the current song."
 		},
 		{
 			"name" : "resume",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Resumes the current song."
 		},
 		{
 			"name" : "next",
 			"aliases" : ["n"],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Skips to the next song."
 		},
 		{
 			"name" : "clear",
 			"aliases" : ["stop"],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Clears the current queue."
 		},
 		{
 			"name" : "queue",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Displays the current queue. Use prev/next reactions to switch pages."
 		},
 		{
 			"name" : "shuffle",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Shuffles the current queue."
 		},
 		{
 			"name" : "loop",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Loops the current queue."
 		},
 		{
 			"name" : "leave",
 			"aliases" : [],
-			"permissionsRequired": []
+			"permissionsRequired": [],
+			"description" : "Disconnects the bot from its current voice channel."
 		}
 	]
 }
