@@ -44,6 +44,7 @@ try
 		throw ("No token found.");
 	}
 
+	console.log("Detected env var token: " + process.env.DJS_TOKEN);
 	client.login(process.env.DJS_TOKEN != "" ? process.env.DJS_TOKEN : token);
 }
 catch (error)
