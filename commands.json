@@ -1,0 +1,58 @@
+{
+	"commands" :
+	[
+		{
+			"name" : "prefix",
+			"aliases" : [],
+			"permissionsRequired": 
+			[
+				"0x0000002000"
+			]
+		},
+		{
+			"name" : "play",
+			"aliases" : ["p"],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "pause",
+			"aliases" : [],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "resume",
+			"aliases" : [],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "next",
+			"aliases" : ["n"],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "clear",
+			"aliases" : ["stop"],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "queue",
+			"aliases" : [],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "shuffle",
+			"aliases" : [],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "loop",
+			"aliases" : [],
+			"permissionsRequired": []
+		},
+		{
+			"name" : "leave",
+			"aliases" : [],
+			"permissionsRequired": []
+		}
+	]
+}

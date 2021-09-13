@@ -1,12 +1,6 @@
+/// Dependencies
 const Discord = require('discord.js');
-
-// const
-// {
-// 	prefix,
-// 	token,
-// } = require('./config.json');
-
-const prefix = '~';
+const { Permissions } = require('discord.js');
 
 const ytdl = require('ytdl-core');
 const yts = require("yt-search");
@@ -20,101 +14,169 @@ const EMOTE_PREV = '⬅️';
 const EMOTE_NEXT = '➡️';
 const EMOTE_ERROR = '🛑';
 
-/// Queue ///
-const queueMap = new Map();
-
 /// Some global settings
 const numSongsPerQueuePage = 10;
+const defaultPrefix = '~';
+// For permission hexcodes, refer to https://discord.com/developers/docs/topics/permissions.
+const { commands }  = require('./commands.json');
+
+/// Data ///
+const queueMap = new Map();
+const prefixMap = new Map();
 
 //////////////////////////////////////////////////////////////////////////////
 /// ---------------------------------------------------------------------- ///
 //////////////////////////////////////////////////////////////////////////////
 /// Login ///
-const client = new Discord.Client();
-client.login(process.env.DJS_TOKEN);
+var client;
+try 
+{
+	// Look for env variable, if that doesn't exist then pull from local config
+	const
+	{
+		token,
+	} = require('./config.json');
 
+	client = new Discord.Client();
+
+	if (process.env.DJS_TOKEN === "" && token === "")
+	{
+		throw ("No token found.");
+	}
+
+	client.login(process.env.DJS_TOKEN === "" ? process.env.DJS_TOKEN : token);
+}
+catch (error)
+{
+	console.log("Encountered error starting up: " + error);
+}
+
+/// Listeners ///
 client.on('ready', () =>
 {
 	console.log('Ready!');
 });
+
 client.on('reconnecting', () =>
 {
 	console.log('Reconnecting!');
 });
+
 client.on('disconnect', () =>
 {
 	console.log('Disconnect!');
 });
 
-/// Listener ///
 client.on('message', async message =>
 {
+	// Ignore other bot messages
 	if (message.author.bot)
 	{
 		return;
-	} 
-	
+	}
+
+	// Retrieve the prefix for this server
+	const prefix = getPrefixForServer(message.guild);
 	if (!message.content.startsWith(prefix))
 	{
 		return;
-	} 
+	}
 
-	// guild = server. We're assuming each server has only one instance of this bot
-	const serverQueue = queueMap.get(message.guild.id);
+	const commandName = getCommandFromMessage(message);
 
-	const args = message.content.split(" ");
-	const contentToPlay = args.slice(1).join(" ");
-
-	if (args[0] == `${prefix}play` || args[0] == `${prefix}p`)
-	{
-		queueSong(message, serverQueue);
-		return;
-	}
-	if (args[0] == `${prefix}pause`)
-	{
-		pause(message, serverQueue);
-		return;
-	}
-	if (args[0] == `${prefix}resume`)
-	{
-		resume(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}next` || args[0] == `${prefix}n`)
-	{
-		next(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}clear` || args[0] == `${prefix}stop`)
-	{
-		clear(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}queue`)
-	{
-		getQueue(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}shuffle`)
-	{
-		shuffle(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}loop`)
-	{
-		loop(message, serverQueue);
-		return;
-	}
-	else if (args[0] == `${prefix}leave`)
-	{
-		leave(message, serverQueue);
-		return;
-	}
-	else
+	// Permission check
+	if (!userHasPermission(message.member, commandName))
 	{
 		let embed = new MessageEmbed()
-			.setTitle(`Command not found, please refer to ${prefix}help for more information.`);
-		return message.channel.send(embed);
+			.setTitle(`You do not have permission to run this command.`);
+		message.channel.send(embed);
+		return;
+	}
+
+	const args = message.content.split(" ");
+	const serverQueue = queueMap.get(message.guild.id);
+
+	switch(commandName)
+	{
+		case `prefix`:
+		{
+			if (args.length == 2)
+			{
+				prefixMap.set(message.guild.id, args[1]);
+				let embed = new MessageEmbed()
+					.setTitle(`Prefix set to ${args[1]}`);
+				message.channel.send(embed);
+			}
+			else
+			{
+				let embed = new MessageEmbed()
+					.setTitle(`Usage: ${prefix}prefix [new prefix]`);
+				message.channel.send(embed);
+			}
+			
+			return;
+		}
+			
+		case `play`:
+		{
+			queueSong(message, serverQueue);
+			return;
+		}
+
+		case `pause`:
+		{
+			pause(message, serverQueue);
+			return;
+		}
+
+		case `resume`:
+		{
+			resume(message, serverQueue);
+			return;
+		}
+
+		case `next`:
+		{
+			next(message, serverQueue);
+			return;
+		}
+
+		case `clear`:
+		{
+			clear(message, serverQueue);
+			return;
+		}
+
+		case `queue`:
+		{
+			getQueue(message, serverQueue);
+			return;
+		}
+			
+		case `shuffle`:
+		{
+			shuffle(message, serverQueue);
+			return;
+		}
+
+		case `loop`:
+		{
+			loop(message, serverQueue);
+			return;
+		}
+
+		case `leave`:
+		{
+			leave(message, serverQueue);
+			return;
+		}
+
+		default:
+		{
+			let embed = new MessageEmbed()
+				.setTitle(`Command not found, please refer to ${prefix}help for more information.`);
+			return message.channel.send(embed);
+		}
 	}
 })
 
@@ -186,6 +248,13 @@ async function queueSong(message, serverQueue)
 	if (!channelQueueCheck(message, serverQueue, false, false))
 	{
 		return;
+	}
+
+	if (contentToPlay == "")
+	{
+		let embed = new MessageEmbed()
+			.setTitle("Please enter a URL or title.");
+		return message.channel.send(embed);
 	}
 	
 	const voiceChannel = message.member.voice.channel;
@@ -285,7 +354,6 @@ async function getSongsInfo(message, contentToPlay)
 	// Youtube - Single vid
 	if (ytdl.validateURL(contentToPlay))
 	{
-		console.log("Found single vid url");
 		try
 		{
 			songInfo = await ytdl.getInfo(contentToPlay);
@@ -299,7 +367,6 @@ async function getSongsInfo(message, contentToPlay)
 			return songs;
 		}
 		
-		console.log(songInfo);
 		const song =
 		{
 			title: songInfo.videoDetails.title,
@@ -314,7 +381,7 @@ async function getSongsInfo(message, contentToPlay)
 	if (ytpl.validateID(contentToPlay))
 	{
 		const playistID = await ytpl.getPlaylistID(contentToPlay);
-		var playlist;
+		let playlist;
 		try
 		{
 			playlist = await ytpl(playistID, { limit : Infinity });
@@ -342,9 +409,6 @@ async function getSongsInfo(message, contentToPlay)
 	}
 
 	// Title search
-	console.log("Searching for video by title");
-
-	// Get song from title
 	const {videos} = await yts(contentToPlay);
 	if (!videos.length)
 	{
@@ -380,7 +444,7 @@ function playSong(serverQueue, index)
 	{
 		// Shouldn't get here but just in case
 		let embed = new MessageEmbed()
-			.setTitle(`Error playing song. Skipping to next...`);
+			.setTitle(`Unexpected error reading song info. Skipping to next...`);
 		serverQueue.textChannel.send(embed);
 
 		playNextSong(serverQueue);
@@ -411,7 +475,10 @@ function playSong(serverQueue, index)
 			playNextSong(serverQueue);
 		});
 
-	dispatcher.setVolumeLogarithmic(serverQueue.volume / 5);
+	if (dispatcher)
+	{
+		dispatcher.setVolumeLogarithmic(serverQueue.volume / 5);
+	}
 }
 
 function playNextSong(serverQueue)
@@ -615,6 +682,26 @@ async function leave(message, serverQueue)
 	message.react(EMOTE_CONFIRM);
 }
 
+/// Logistics ///
+function userHasPermission(user, commandName)
+{
+	for (let command of commands)
+	{
+		if (commandName === command.name)
+		{
+			for (let permission of command.permissionsRequired)
+			{
+				if (!user.permissions.has(permission, true)) // true = admin overrides
+				{
+					return false;
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
 /// Helper functions /// 
 function channelQueueCheck(message, serverQueue, dispatcherCheck = false, connectionCheck = true)
 {
@@ -707,6 +794,36 @@ function cleanUpServerState(serverQueue)
 	}
 
 	queueMap.delete(message.guild.id);
+}
+
+function getPrefixForServer(server)
+{
+	return prefixMap.has(server.id) ? prefixMap.get(server.id) : defaultPrefix;
+}
+
+function getCommandFromMessage(message)
+{
+	const args = message.content.split(" ");
+	let commandName = args[0];
+	const prefix = getPrefixForServer(message.guild);
+
+	commandName = commandName.replace(prefix, "");
+
+	// Convert aliases to names
+	for (let command of commands)
+	{
+		if (commandName === command.name)
+		{
+			break;
+		}
+		if (command.aliases.includes(commandName))
+		{
+			commandName = command.name;
+			break;
+		}
+	}
+
+	return commandName;
 }
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
