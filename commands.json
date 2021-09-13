@@ -6,7 +6,7 @@
 			"aliases" : [],
 			"permissionsRequired": 
 			[
-				"0x0000002000"
+				"MANAGE_ROLES"
 			],
 			"description" : "Changes the prefix of the bot."
 		},

@@ -91,10 +91,10 @@ client.on('message', async message =>
 		return;
 	}
 
-	const commandName = getCommandFromMessage(message);
+	const args = parseMessageToArgs(message);
 
 	// Permission check
-	if (!userHasPermission(message.member, commandName))
+	if (!userHasPermission(message.member, args.commandName))
 	{
 		let embed = new MessageEmbed()
 			.setTitle(`You do not have permission to run this command.`);
@@ -102,18 +102,17 @@ client.on('message', async message =>
 		return;
 	}
 
-	const args = message.content.split(" ");
 	const serverQueue = queueMap.get(message.guild.id);
 
-	switch(commandName)
+	switch(args.commandName)
 	{
 		case `prefix`:
 		{
-			if (args.length == 2)
+			if (args.extraArgs != "")
 			{
-				prefixMap.set(message.guild.id, args[1]);
+				prefixMap.set(message.guild.id, args.extraArgs);
 				let embed = new MessageEmbed()
-					.setTitle(`Prefix set to ${args[1]}`);
+					.setTitle(`Prefix set to ${args.extraArgs}`);
 				message.channel.send(embed);
 			}
 			else
@@ -153,6 +152,12 @@ client.on('message', async message =>
 		case `clear`:
 		{
 			clear(message, serverQueue);
+			return;
+		}
+
+		case `remove`:
+		{
+			remove(message, serverQueue);
 			return;
 		}
 
@@ -256,8 +261,8 @@ client.on('messageReactionAdd', (reaction, user) =>
 /// Commands ///
 async function queueSong(message, serverQueue)
 {
-	const args = message.content.split(" ");
-	const contentToPlay = args.slice(1).join(" ");
+	const args = parseMessageToArgs(message);
+	const contentToPlay = args.extraArgs;
 
 	// Error checking
 	if (!channelQueueCheck(message, serverQueue, false, false))
@@ -332,6 +337,8 @@ async function queueSong(message, serverQueue)
 				.setFooter("Please try again or bonk Frosty");
 			return message.channel.send(embed);
 		}
+
+		newQueue.connection.voice.setSelfDeaf(true);
 	}
 
 	// Add the songs
@@ -589,6 +596,46 @@ function clear(message, serverQueue)
 	message.react(EMOTE_CONFIRM);
 }
 
+function remove(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue))
+	{
+		return;
+	}
+
+	const args = parseMessageToArgs(message);
+	const inputIndex = parseInt(args.extraArgs);
+	if (isNaN(inputIndex) || inputIndex - 1 < 0 || inputIndex - 1 >= serverQueue.songs.length)
+	{
+		let embed = new MessageEmbed()
+			.setTitle(`Please enter a valid index. Usage: remove [number in queue].`);
+		serverQueue.textChannel.send(embed);
+		return;
+	}
+
+	const indexToRemove = inputIndex - 1;
+	const songToRemove = serverQueue.songs[indexToRemove];
+	serverQueue.songs.splice(indexToRemove, 1);
+
+	if (serverQueue.playing >= indexToRemove)
+	{
+		if (serverQueue.playing === indexToRemove)
+		{
+			if (serverQueue.connection.dispatcher)
+			{
+				serverQueue.connection.dispatcher.end();
+			}
+		}
+
+		--serverQueue.playing;
+	}
+
+	var removeStr = "Removed " + inputIndex.toString() + ". " + songToRemove.title + "\n" ;
+	let embed = new MessageEmbed()
+		.setTitle(removeStr);
+	serverQueue.textChannel.send(embed);
+}
+
 function getQueue(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue))
@@ -730,12 +777,9 @@ function userHasPermission(user, commandName)
 	{
 		if (commandName === command.name)
 		{
-			for (let permission of command.permissionsRequired)
+			if (!user.permissions.has(command.permissionsRequired, true)) // true = admin overrides
 			{
-				if (!user.permissions.has(permission, true)) // true = admin overrides
-				{
-					return false;
-				}
+				return false;
 			}
 		}
 	}
@@ -842,19 +886,23 @@ function getPrefixForServer(server)
 	return prefixMap.has(server.id) ? prefixMap.get(server.id) : defaultPrefix;
 }
 
-function getCommandFromMessage(message)
+function parseMessageToArgs(message)
 {
 	let commandName;
 	const prefix = getPrefixForServer(message.guild);
+	const args = message.content.split(" ");
+
+	let extraArgs;
 
 	if (message.content.startsWith(prefix))
 	{
-		commandName = message.content.slice(prefix.length);
+		commandName = args[0].slice(prefix.length);
+		extraArgs = args.slice(1).join(" ");
 	}
 	else
 	{
-		const args = message.content.split(" ");
-		commandName = args.slice(1).join(" ");
+		commandName = (args.length > 1) ? args[1] : "";
+		extraArgs = args.slice(2).join(" ");
 	}
 
 	// Convert aliases to names
@@ -871,7 +919,13 @@ function getCommandFromMessage(message)
 		}
 	}
 
-	return commandName;
+	const outArgs =
+	{
+		commandName: commandName,
+		extraArgs: extraArgs
+	}
+
+	return outArgs;
 }
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
