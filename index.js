@@ -341,7 +341,6 @@ async function queueSong(message, serverQueue)
 		catch (error)
 		{
 			queueMap.delete(message.guild.id);
-			newQueue.connection.delete();
 
 			let embed = new MessageEmbed()
 				.setTitle("Unexpected error joining voice chat.")
