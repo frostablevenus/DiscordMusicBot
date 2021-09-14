@@ -149,6 +149,12 @@ client.on('message', async message =>
 			return;
 		}
 
+		case `skip`:
+		{
+			skip(message, serverQueue);
+			return;
+		}
+
 		case `clear`:
 		{
 			clear(message, serverQueue);
@@ -164,6 +170,12 @@ client.on('message', async message =>
 		case `queue`:
 		{
 			getQueue(message, serverQueue);
+			return;
+		}
+
+		case `nowplaying`:
+		{
+			getNowPlaying(message, serverQueue);
 			return;
 		}
 			
@@ -579,6 +591,37 @@ function next(message, serverQueue)
 	message.react(EMOTE_CONFIRM);
 }
 
+function skip(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue))
+	{
+		return;
+	}
+
+	const args = parseMessageToArgs(message);
+	if (args.extraArgs === "")
+	{
+		// Treat this as skipping to the next song
+		next(message, serverQueue);
+		return;
+	}
+
+	const inputIndex = parseInt(args.extraArgs);
+	if (isNaN(inputIndex) || inputIndex - 1 < 0 || inputIndex - 1 >= serverQueue.songs.length)
+	{
+		let embed = new MessageEmbed()
+			.setTitle(`Please enter a valid index. Usage: skip [number in queue].`);
+		serverQueue.textChannel.send(embed);
+		return;
+	}
+
+	serverQueue.playing = inputIndex - 2; // Setting it to the previous song, it'll go to the wanted song when we end the current one.
+	if (serverQueue.connection.dispatcher)
+	{
+		serverQueue.connection.dispatcher.end();
+	}
+}
+
 function clear(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue))
@@ -696,6 +739,20 @@ function switchQueuePage(message, serverQueue, pageIndex)
 	message.edit(embed);
 }
 
+function getNowPlaying(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue))
+	{
+		return;
+	}
+
+	const song = serverQueue.songs[serverQueue.playing];
+	let embed = new MessageEmbed()
+		.setTitle("Now playing")
+		.setDescription(`**[${song.title}](${song.url})** [<@${song.addedBy}>]`);
+	serverQueue.textChannel.send(embed);
+}
+
 function shuffle(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue))
@@ -703,15 +760,20 @@ function shuffle(message, serverQueue)
 		return;
 	}
 
+	// Walk the queue and swap each song with a random lower one. Don't shuffle the current song.
 	for (let i = serverQueue.songs.length - 1; i > 0; i--)
 	{
 		if (i == serverQueue.playing)
 		{
-			// Don't shuffle the current song
 			continue;
 		}
 
-        const j = Math.floor(Math.random() * (i + 1));
+        var j = Math.floor(Math.random() * (i + 1));
+		while (j === serverQueue.playing)
+		{
+			j = Math.floor(Math.random() * (i + 1));
+		}
+
         [serverQueue.songs[i], serverQueue.songs[j]] = [serverQueue.songs[j], serverQueue.songs[i]];
     }
 
@@ -892,7 +954,7 @@ function parseMessageToArgs(message)
 	const prefix = getPrefixForServer(message.guild);
 	const args = message.content.split(" ");
 
-	let extraArgs;
+	let extraArgs = "";
 
 	if (message.content.startsWith(prefix))
 	{

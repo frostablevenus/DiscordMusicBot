@@ -35,16 +35,34 @@
 			"description" : "Skips to the next song."
 		},
 		{
+			"name" : "skip",
+			"aliases" : [""],
+			"permissionsRequired": [],
+			"description" : "Skips to the next or specified song."
+		},
+		{
 			"name" : "clear",
 			"aliases" : ["stop"],
 			"permissionsRequired": [],
 			"description" : "Clears the current queue."
 		},
 		{
+			"name" : "remove",
+			"aliases" : [""],
+			"permissionsRequired": [],
+			"description" : "Removes a song from the current queue. Usage: remove [number in queue]."
+		},
+		{
 			"name" : "queue",
 			"aliases" : [],
 			"permissionsRequired": [],
 			"description" : "Displays the current queue. Use prev/next reactions to switch pages."
+		},
+		{
+			"name" : "nowplaying",
+			"aliases" : ["np"],
+			"permissionsRequired": [],
+			"description" : "Displays the currently play song."
 		},
 		{
 			"name" : "shuffle",
@@ -63,6 +81,12 @@
 			"aliases" : [],
 			"permissionsRequired": [],
 			"description" : "Disconnects the bot from its current voice channel."
+		},
+		{
+			"name" : "help",
+			"aliases" : [],
+			"permissionsRequired": [],
+			"description" : "Displays the help menu."
 		}
 	]
 }
