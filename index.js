@@ -20,10 +20,10 @@ const numSongsPerQueuePage = 10;
 const defaultPrefix = '~';
 // For permission hexcodes, refer to https://discord.com/developers/docs/topics/permissions.
 const { commands }  = require('./commands.json');
+const { serverPrefixes } = require('./prefixes.json');
 
 /// Data ///
 const queueMap = new Map();
-const prefixMap = new Map();
 
 //////////////////////////////////////////////////////////////////////////////
 /// ---------------------------------------------------------------------- ///
@@ -110,9 +110,31 @@ client.on('message', async message =>
 		{
 			if (args.extraArgs != "")
 			{
-				prefixMap.set(message.guild.id, args.extraArgs);
+				const newPrefix = args.extraArgs;
+
+				setServerPrefix(message.guild.id, newPrefix);
+
+				// Stringify and write to file
+				let data = 
+				{
+					"serverPrefixes" : serverPrefixes
+				}
+				let dataStr = JSON.stringify(data, null, 2);
+
+				fs.writeFile("prefixes.json", dataStr, function (error)
+				{
+					if (error) 
+					{
+						let embed = new MessageEmbed()
+							.setTitle(`Failed to set prefix to ${newPrefix}`);
+						message.channel.send(embed);
+						console.log(error);
+						return;
+					}
+				});
+
 				let embed = new MessageEmbed()
-					.setTitle(`Prefix set to ${args.extraArgs}`);
+					.setTitle(`Prefix set to ${newPrefix}`);
 				message.channel.send(embed);
 			}
 			else
@@ -614,10 +636,14 @@ function skip(message, serverQueue)
 		return;
 	}
 
-	serverQueue.playing = inputIndex - 2; // Setting it to the previous song, it'll go to the wanted song when we end the current one.
 	if (serverQueue.connection.dispatcher)
 	{
+		serverQueue.playing = inputIndex - 2; // Setting it to the previous song, it'll go to the wanted song when we end the current one.
 		serverQueue.connection.dispatcher.end();
+	}
+	else
+	{
+		playSong(serverQueue, inputIndex - 1);
 	}
 }
 
@@ -694,8 +720,9 @@ function getQueue(message, serverQueue)
 	}
 
 	// Display the page with currently played song
-	const currentPage = Math.floor(serverQueue.playing / numSongsPerQueuePage);
-	const queuedSongs = parseQueue(serverQueue, currentPage);
+	const nowPlaying = (serverQueue.playing >= numSongs) ? numSongs - 1 : nowPlaying; // Sets to last if we're at the end of queue
+	const currentPage = Math.floor(nowPlaying / numSongsPerQueuePage);
+	const queuedSongs = parseQueue(message, serverQueue, currentPage);
 	if (queuedSongs === "")
 	{
 		return;
@@ -723,7 +750,7 @@ function getQueue(message, serverQueue)
 
 function switchQueuePage(message, serverQueue, pageIndex)
 {
-	const queuedSongs = parseQueue(serverQueue, pageIndex);
+	const queuedSongs = parseQueue(message, serverQueue, pageIndex);
 	if (queuedSongs === "")
 	{
 		return;
@@ -886,7 +913,7 @@ function channelQueueCheck(message, serverQueue, dispatcherCheck = false, connec
 	return true;
 }
 
-function parseQueue(serverQueue, pageIndex)
+function parseQueue(message, serverQueue, pageIndex)
 {
 	const numSongs = serverQueue.songs.length;
 	const numPages = Math.ceil(numSongs / numSongsPerQueuePage);
@@ -944,7 +971,15 @@ function cleanUpServerState(serverQueue)
 
 function getPrefixForServer(server)
 {
-	return prefixMap.has(server.id) ? prefixMap.get(server.id) : defaultPrefix;
+	for (let serverPrefix of serverPrefixes)
+	{
+		if (serverPrefix.serverId === server.id)
+		{
+			return serverPrefix.prefix;
+		}
+	}
+
+	return defaultPrefix;
 }
 
 function parseMessageToArgs(message)
@@ -987,6 +1022,30 @@ function parseMessageToArgs(message)
 	}
 
 	return outArgs;
+}
+
+function setServerPrefix(serverId, newPrefix)
+{
+	let modified = false;
+	for (let serverPrefix of serverPrefixes)
+	{
+		if (serverPrefix.serverId === serverId)
+		{
+			serverPrefix.prefix = newPrefix;
+			modified = true;
+			break;
+		}
+	}
+
+	if (!modified)
+	{
+		// Put this into the json obj array
+		serverPrefixes.push(
+		{
+			"serverId" : serverId,
+			"prefix" : newPrefix
+		});
+	}
 }
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
