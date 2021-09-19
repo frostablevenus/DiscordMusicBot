@@ -3,7 +3,7 @@ const Discord = require('discord.js');
 const { Permissions } = require('discord.js');
 const fs = require('fs');
 
-const ytdl = require('ytdl-core');
+const ytdl = require('ytdl-core-discord');
 const yts = require("yt-search");
 const ytpl = require('ytpl');
 
@@ -413,7 +413,7 @@ async function queueSong(message, serverQueue)
 	// If we are not playing anything, play the first added song
 	if (!isQueuePlaying(serverQueue))
 	{
-		playSong(serverQueue, indexAdded);
+		await playSong(serverQueue, indexAdded);
 	}
 }
 
@@ -498,7 +498,7 @@ async function getSongsInfo(message, contentToPlay)
 	return songs;
 }
 
-function playSong(serverQueue, index, seekTo = 0)
+async function playSong(serverQueue, index, seekTo = 0)
 {
 	serverQueue.playingIndex = index;
 	if (serverQueue.playingIndex < 0 || serverQueue.playingIndex >= serverQueue.songs.length)
@@ -533,10 +533,10 @@ function playSong(serverQueue, index, seekTo = 0)
 
 	// Play the song on our set connection
 	// dispatcher is like a handle returned by .play(), and is set automatically on the connection by calling this function.
-	const stream = ytdl(song.url);
+	const stream = await ytdl(song.url);
 
 	const dispatcher = serverQueue.connection
-		.play(stream, { seek : seekTo })
+		.play(stream, { seek : seekTo, type: 'opus' })
 		.on("finish", () =>
 		{
 			playNextSong(serverQueue);
@@ -574,7 +574,7 @@ async function playNextSong(serverQueue)
 		}
 	}
 
-	playSong(serverQueue, nextSongIndex);
+	await playSong(serverQueue, nextSongIndex);
 }
 
 function pause(message, serverQueue)
@@ -621,7 +621,7 @@ function resume(message, serverQueue)
 	message.react(EMOTE_ERROR);
 }
 
-function seek(message, serverQueue)
+async function seek(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue, true))
 	{
@@ -640,7 +640,7 @@ function seek(message, serverQueue)
 	}
 
 	// TODO: Maybe end current dispatcher to fix the speed problem
-	playSong(serverQueue, serverQueue.playingIndex, seconds);
+	await playSong(serverQueue, serverQueue.playingIndex, seconds);
 	message.react(EMOTE_CONFIRM);
 }
 
@@ -655,7 +655,7 @@ function next(message, serverQueue)
 	message.react(EMOTE_CONFIRM);
 }
 
-function skip(message, serverQueue)
+async function skip(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue))
 	{
@@ -686,7 +686,7 @@ function skip(message, serverQueue)
 	}
 	else
 	{
-		playSong(serverQueue, inputIndex - 1);
+		await playSong(serverQueue, inputIndex - 1);
 	}
 }
 
@@ -1061,7 +1061,7 @@ async function list(message, serverQueue)
 
 			if (!bWasQueuePlaying)
 			{
-				playSong(serverQueue, 0);
+				await playSong(serverQueue, 0);
 			}
 
 			break;
