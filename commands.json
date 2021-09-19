@@ -29,6 +29,12 @@
 			"description" : "Resumes the current song."
 		},
 		{
+			"name" : "seek",
+			"aliases" : [],
+			"permissionsRequired": [],
+			"description" : "Seek to the specified location in the current song. Example: \"seek 2:10\""
+		},
+		{
 			"name" : "next",
 			"aliases" : ["n"],
 			"permissionsRequired": [],
@@ -36,7 +42,7 @@
 		},
 		{
 			"name" : "skip",
-			"aliases" : [""],
+			"aliases" : [],
 			"permissionsRequired": [],
 			"description" : "Skips to the next or specified song."
 		},
@@ -44,13 +50,13 @@
 			"name" : "clear",
 			"aliases" : ["stop"],
 			"permissionsRequired": [],
-			"description" : "Clears the current queue."
+			"description" : "Clears the queue."
 		},
 		{
 			"name" : "remove",
-			"aliases" : [""],
+			"aliases" : [],
 			"permissionsRequired": [],
-			"description" : "Removes a song from the current queue. Usage: remove [number in queue]."
+			"description" : "Removes a song by its number in the queue."
 		},
 		{
 			"name" : "queue",
@@ -68,13 +74,19 @@
 			"name" : "shuffle",
 			"aliases" : [],
 			"permissionsRequired": [],
-			"description" : "Shuffles the current queue."
+			"description" : "Shuffles the queue."
 		},
 		{
 			"name" : "loop",
 			"aliases" : [],
 			"permissionsRequired": [],
-			"description" : "Loops the current queue."
+			"description" : "Loops the queue."
+		},
+		{
+			"name" : "list",
+			"aliases" : ["l"],
+			"permissionsRequired": [],
+			"description" : "Save/load current queue to/from playlist. Usage: \"list [save/load] [name]\" | \"list view\". Save an empty queue to a playlist to delete it."
 		},
 		{
 			"name" : "leave",

@@ -18,12 +18,41 @@ const EMOTE_ERROR = '🛑';
 /// Some global settings
 const numSongsPerQueuePage = 10;
 const defaultPrefix = '~';
-// For permission hexcodes, refer to https://discord.com/developers/docs/topics/permissions.
-const { commands }  = require('./commands.json');
-const { serverPrefixes } = require('./prefixes.json');
 
 /// Data ///
 const queueMap = new Map();
+
+var commands = [];
+var serverPrefixes = [];
+var personalLists = [];
+{
+	// Separate try catches since we dont want to fail the rest if any of them fail.
+	try
+	{
+		commands = require('./commands.json').commands;
+	} 
+	catch (error)
+	{
+	}
+	
+	try
+	{
+		// For permission hexcodes, refer to https://discord.com/developers/docs/topics/permissions.
+		serverPrefixes = require('./prefixes.json').serverPrefixes;
+	} 
+	catch (error)
+	{
+	}
+	
+	try
+	{
+		personalLists = require('./personalLists.json').personalLists;
+	}
+	catch (error)
+	{
+	}
+}
+
 
 //////////////////////////////////////////////////////////////////////////////
 /// ---------------------------------------------------------------------- ///
@@ -83,7 +112,7 @@ client.on('message', async message =>
 	const startsWithMention = message.content.startsWith(`<@${myId}>`) || message.content.startsWith(`<@!${myId}>`);
 
 	// Does this command start with the set prefix?
-	const prefix = getPrefixForServer(message.guild);
+	const prefix = getServerPrefix(message.guild);
 	const startsWithPrefix = message.content.startsWith(prefix);
 	
 	if (!startsWithMention && !startsWithPrefix)
@@ -165,6 +194,12 @@ client.on('message', async message =>
 			return;
 		}
 
+		case `seek`:
+		{
+			seek(message, serverQueue);
+			return;
+		}
+
 		case `next`:
 		{
 			next(message, serverQueue);
@@ -213,6 +248,12 @@ client.on('message', async message =>
 			return;
 		}
 
+		case `list`:
+		{
+			list(message, serverQueue);
+			return;
+		}
+
 		case `leave`:
 		{
 			leave(message, serverQueue);
@@ -239,7 +280,7 @@ client.on('messageReactionAdd', (reaction, user) =>
 	let message = reaction.message;
 	let emoji = reaction.emoji;
 
-	if (!message.author.bot) // Only handle reactions on our messages
+	if (message.author.id != client.user.id) // Only handle reactions on our messages
 	{
 		return;
 	}
@@ -258,7 +299,7 @@ client.on('messageReactionAdd', (reaction, user) =>
 	const serverQueue = queueMap.get(message.guild.id);
 
 	// Queue page turning
-	if (embed.title.includes(`Current queue`))
+	if (embed.title.startsWith(`Current queue`))
 	{
 		let pageCounters = embed.footer.text.split("/");
 		let currentPage = parseInt(pageCounters[0]) - 1;
@@ -321,57 +362,30 @@ async function queueSong(message, serverQueue)
 		return message.channel.send(embed);
 	}
 
-	// Resolve the requested content into a list of songs to add
-	let songs = await getSongsInfo(message, contentToPlay);
-
-	if (songs.length === 0)
+	if (!serverQueue)
 	{
-		return;
+		try
+		{
+			serverQueue = await createServerQueueAndJoinVoice(message, serverQueue);
+		}
+		catch (error)
+		{
+			// Ran into some error while creating the server queue, abort
+			return;
+		}
 	}
 
+	// Resolve the requested content into a list of songs to add
+	let songs = await getSongsInfo(message, contentToPlay);
+	if (songs.length === 0)
+	{
+		// No need to send anything here because getSongsInfo already has error checking.
+		return;
+	}
 	// Set the requester
 	for (let song of songs)
 	{
 		song.addedBy = message.author.id;
-	}
-
-	// If the queue doesn't exist yet, start a new one
-	if (!serverQueue)
-	{
-		// Creating the a new queue for our queueMap
-		const newQueue =
-		{
-			textChannel: message.channel,
-			voiceChannel: voiceChannel,
-			connection: null,
-			songs: [],
-			volume: 5,
-			playing: -1,
-			looping: false,
-		};
-
-		// Add to queueMap
-		queueMap.set(message.guild.id, newQueue);
-
-		serverQueue = newQueue;
-		
-		// Join the voicechat
-		try
-		{
-			newQueue.connection = await voiceChannel.join();
-		}
-		catch (error)
-		{
-			queueMap.delete(message.guild.id);
-
-			let embed = new MessageEmbed()
-				.setTitle("Unexpected error joining voice chat.")
-				.setDescription("Error: " + error)
-				.setFooter("Please try again or bonk Frosty");
-			return message.channel.send(embed);
-		}
-
-		newQueue.connection.voice.setSelfDeaf(true);
 	}
 
 	// Add the songs
@@ -484,39 +498,45 @@ async function getSongsInfo(message, contentToPlay)
 	return songs;
 }
 
-function playSong(serverQueue, index)
+function playSong(serverQueue, index, seekTo = 0)
 {
-	serverQueue.playing = index;
-	if (serverQueue.playing < 0 || serverQueue.playing >= serverQueue.songs.length)
+	serverQueue.playingIndex = index;
+	if (serverQueue.playingIndex < 0 || serverQueue.playingIndex >= serverQueue.songs.length)
 	{
 		let embed = new MessageEmbed()
 			.setTitle(`Error playing song: song index in queue oob.`);
-		return serverQueue.textChannel.send(embed);
+		serverQueue.defaultTextChannel.send(embed);
+		return;
 	}
 	
-	const song = serverQueue.songs[serverQueue.playing];
+	const song = serverQueue.songs[serverQueue.playingIndex];
 
 	if (!song)
 	{
 		// Shouldn't get here but just in case
 		let embed = new MessageEmbed()
 			.setTitle(`Unexpected error reading song info. Skipping to next...`);
-		serverQueue.textChannel.send(embed);
+		serverQueue.defaultTextChannel.send(embed);
 
 		playNextSong(serverQueue);
 
 		return;
 	}
 
-	let embed = new MessageEmbed()
-		.setTitle("Now playing")
-		.setDescription(`**[${song.title}](${song.url})** [<@${song.addedBy}>]`);
-	serverQueue.textChannel.send(embed);
+	if (seekTo === 0)
+	{
+		let embed = new MessageEmbed()
+			.setTitle("Now playing")
+			.setDescription(`**[${song.title}](${song.url})** [<@${song.addedBy}>]`);
+		serverQueue.defaultTextChannel.send(embed);
+	}
 
 	// Play the song on our set connection
 	// dispatcher is like a handle returned by .play(), and is set automatically on the connection by calling this function.
+	const stream = ytdl(song.url);
+
 	const dispatcher = serverQueue.connection
-		.play(ytdl(song.url))
+		.play(stream, { seek : seekTo })
 		.on("finish", () =>
 		{
 			playNextSong(serverQueue);
@@ -526,7 +546,7 @@ function playSong(serverQueue, index)
 			const errorStr = "Error encountered while playing video: " + error.toString().replace('Error: input stream: ', '');
 			let embed = new MessageEmbed()
 				.setTitle(errorStr);
-			serverQueue.textChannel.send(embed);
+			serverQueue.defaultTextChannel.send(embed);
 
 			playNextSong(serverQueue);
 		});
@@ -537,9 +557,9 @@ function playSong(serverQueue, index)
 	}
 }
 
-function playNextSong(serverQueue)
+async function playNextSong(serverQueue)
 {
-	let nextSongIndex = serverQueue.playing + 1;
+	let nextSongIndex = serverQueue.playingIndex + 1;
 	if (nextSongIndex >= serverQueue.songs.length)
 	{
 		if (serverQueue.looping)
@@ -550,7 +570,7 @@ function playNextSong(serverQueue)
 		{
 			let embed = new MessageEmbed()
 				.setTitle(`Reach the end of queue.`);
-			return serverQueue.textChannel.send(embed);
+			return serverQueue.defaultTextChannel.send(embed);
 		}
 	}
 
@@ -601,6 +621,29 @@ function resume(message, serverQueue)
 	message.react(EMOTE_ERROR);
 }
 
+function seek(message, serverQueue)
+{
+	if (!channelQueueCheck(message, serverQueue, true))
+	{
+		return;
+	}
+
+	const args = parseMessageToArgs(message);
+	const seconds = parseTimeString(args.extraArgs);
+
+	if (seconds < 0)
+	{
+		let embed = new MessageEmbed()
+			.setTitle(`Please enter a valid time. Format: "secs", "mins:secs", etc.'`);
+		message.channel.send(embed);
+		return;
+	}
+
+	// TODO: Maybe end current dispatcher to fix the speed problem
+	playSong(serverQueue, serverQueue.playingIndex, seconds);
+	message.react(EMOTE_CONFIRM);
+}
+
 function next(message, serverQueue)
 {
 	if (!channelQueueCheck(message, serverQueue, true))
@@ -632,13 +675,13 @@ function skip(message, serverQueue)
 	{
 		let embed = new MessageEmbed()
 			.setTitle(`Please enter a valid index. Usage: skip [number in queue].`);
-		serverQueue.textChannel.send(embed);
+		message.channel.send(embed);
 		return;
 	}
 
 	if (serverQueue.connection.dispatcher)
 	{
-		serverQueue.playing = inputIndex - 2; // Setting it to the previous song, it'll go to the wanted song when we end the current one.
+		serverQueue.playingIndex = inputIndex - 2; // Setting it to the previous song, it'll go to the wanted song when we end the current one.
 		serverQueue.connection.dispatcher.end();
 	}
 	else
@@ -654,12 +697,7 @@ function clear(message, serverQueue)
 		return;
 	}
 
-	serverQueue.songs = [];
-
-	if (serverQueue.connection.dispatcher)
-	{
-		serverQueue.connection.dispatcher.end();
-	}
+	cleanUpServerQueue(serverQueue);
 	
 	message.react(EMOTE_CONFIRM);
 }
@@ -677,7 +715,7 @@ function remove(message, serverQueue)
 	{
 		let embed = new MessageEmbed()
 			.setTitle(`Please enter a valid index. Usage: remove [number in queue].`);
-		serverQueue.textChannel.send(embed);
+		message.channel.send(embed);
 		return;
 	}
 
@@ -685,9 +723,9 @@ function remove(message, serverQueue)
 	const songToRemove = serverQueue.songs[indexToRemove];
 	serverQueue.songs.splice(indexToRemove, 1);
 
-	if (serverQueue.playing >= indexToRemove)
+	if (serverQueue.playingIndex >= indexToRemove)
 	{
-		if (serverQueue.playing === indexToRemove)
+		if (serverQueue.playingIndex === indexToRemove)
 		{
 			if (serverQueue.connection.dispatcher)
 			{
@@ -695,13 +733,13 @@ function remove(message, serverQueue)
 			}
 		}
 
-		--serverQueue.playing;
+		--serverQueue.playingIndex;
 	}
 
 	var removeStr = "Removed " + inputIndex.toString() + ". " + songToRemove.title + "\n" ;
 	let embed = new MessageEmbed()
 		.setTitle(removeStr);
-	serverQueue.textChannel.send(embed);
+	message.channel.send(embed);
 }
 
 function getQueue(message, serverQueue)
@@ -720,9 +758,9 @@ function getQueue(message, serverQueue)
 	}
 
 	// Display the page with currently played song
-	const nowPlaying = (serverQueue.playing >= numSongs) ? numSongs - 1 : nowPlaying; // Sets to last if we're at the end of queue
+	const nowPlaying = Math.min(Math.max(serverQueue.playingIndex, 0), numSongs - 1); // Bound to [0..numsongs - 1]
 	const currentPage = Math.floor(nowPlaying / numSongsPerQueuePage);
-	const queuedSongs = parseQueue(message, serverQueue, currentPage);
+	const queuedSongs = parseQueue(message, currentPage, serverQueue.songs, serverQueue.playingIndex, isQueuePlaying(serverQueue));
 	if (queuedSongs === "")
 	{
 		return;
@@ -750,7 +788,7 @@ function getQueue(message, serverQueue)
 
 function switchQueuePage(message, serverQueue, pageIndex)
 {
-	const queuedSongs = parseQueue(message, serverQueue, pageIndex);
+	const queuedSongs = parseQueue(message, pageIndex, serverQueue.songs, serverQueue.playingIndex, isQueuePlaying(serverQueue));
 	if (queuedSongs === "")
 	{
 		return;
@@ -758,7 +796,7 @@ function switchQueuePage(message, serverQueue, pageIndex)
 
 	const numPages = Math.ceil(serverQueue.songs.length / numSongsPerQueuePage);
 	let embed = new MessageEmbed()
-		.setTitle(`Current queue for #${message.channel.name}`)
+		.setTitle(message.embeds[0].title)
 		.setDescription(queuedSongs)
 		.setFooter(`${pageIndex + 1}/${numPages}`);
 
@@ -772,11 +810,11 @@ function getNowPlaying(message, serverQueue)
 		return;
 	}
 
-	const song = serverQueue.songs[serverQueue.playing];
+	const song = serverQueue.songs[serverQueue.playingIndex];
 	let embed = new MessageEmbed()
 		.setTitle("Now playing")
 		.setDescription(`**[${song.title}](${song.url})** [<@${song.addedBy}>]`);
-	serverQueue.textChannel.send(embed);
+	message.channel.send(embed);
 }
 
 function shuffle(message, serverQueue)
@@ -789,13 +827,13 @@ function shuffle(message, serverQueue)
 	// Walk the queue and swap each song with a random lower one. Don't shuffle the current song.
 	for (let i = serverQueue.songs.length - 1; i > 0; i--)
 	{
-		if (i == serverQueue.playing)
+		if (i == serverQueue.playingIndex)
 		{
 			continue;
 		}
 
         var j = Math.floor(Math.random() * (i + 1));
-		while (j === serverQueue.playing)
+		while (j === serverQueue.playingIndex)
 		{
 			j = Math.floor(Math.random() * (i + 1));
 		}
@@ -818,6 +856,246 @@ function loop(message, serverQueue)
 	let embed = new MessageEmbed()
 		.setTitle("Looping for this queue is now " + (serverQueue.looping ? "**enabled**" : "**disabled**"));
 	message.channel.send(embed);
+}
+
+async function list(message, serverQueue)
+{
+	function printUsage()
+	{
+		let embed = new MessageEmbed()
+			.setTitle(`Usage: "list [save/load] [name]" | "list view"`);
+		message.channel.send(embed);
+	}
+
+	const args = parseMessageToArgs(message);
+	const extraArgs = args.extraArgs;
+	
+	const listCommand = extraArgsList[0].toLowerCase();
+	const listName = extraArgsList.slice(1).join(" ");
+
+	if (!["save", "load", "view"].includes(listCommand))
+	{
+		printUsage();
+		return;
+	}
+
+	// Collection of playlists belonging to this user
+	let userLists = null;
+	// The playlist with the name entered. Might not yet exist.
+	let userList = null;
+
+	// Try to find both userLists & userList
+	for (let listCollection of personalLists)
+	{
+		if (listCollection.userId === message.author.id)
+		{
+			userLists = listCollection.lists;
+			for (let list of userLists)
+			{
+				if (list.name === listName)
+				{
+					userList = list;
+					break;
+				}
+			}
+
+			break;
+		}
+	}
+
+	switch (listCommand)
+	{
+		case "save":
+		{
+			if (!channelQueueCheck(message, serverQueue))
+			{
+				return;
+			}
+
+			if (listName === "")
+			{
+				printUsage();
+				return;
+			}
+
+			if (serverQueue.songs.length === 0)
+			{
+				// Interpretting this as deleting the list.
+				if (userLists && userList)
+				{
+					userLists.splice(userLists.indexOf(userList), 1);
+				}
+			}
+
+			// Get a list of songs from the current queue
+			let newSongs = [];
+			for (let song of serverQueue.songs)
+			{
+				const newSong = 
+				{
+					title: song.title,
+					url: song.url
+				}
+				newSongs.push(newSong);
+			}
+
+			// Update the existing playlist
+			if (userList)
+			{
+				userList.songs = newSongs;
+			}
+			// Create a new playlist
+			else
+			{
+				const newUserList =
+				{
+					name: listName,
+					songs : newSongs
+				}
+
+				// Add or existing list collection
+				if (userLists)
+				{
+					userLists.push(newUserList);
+				}
+				// Create a new list collection
+				else
+				{
+					let newListCollection =
+					{
+						userId: message.author.id,
+						lists: [newUserList]
+					};
+					personalLists.push(newListCollection);
+				}
+			}
+
+			// Stringify and write to file
+			let data = 
+			{
+				"personalLists" : personalLists
+			}
+			let dataStr = JSON.stringify(data, null, 2);
+
+			fs.writeFile("personalLists.json", dataStr, function (error)
+			{
+				if (error) 
+				{
+					let embed = new MessageEmbed()
+						.setTitle(`Failed to save playlist.`);
+					message.channel.send(embed);
+					console.log(error);
+					return;
+				}
+			});
+
+			let embed = new MessageEmbed()
+				.setTitle(`Saved playlist ${listName}`);
+			message.channel.send(embed);
+
+			break;
+		}
+
+		case "load":
+		{
+			if (!channelQueueCheck(message, serverQueue, false, false))
+			{
+				return;
+			}
+
+			if (listName === "")
+			{
+				printUsage();
+				return;
+			}
+
+			if (userList === null)
+			{
+				let embed = new MessageEmbed()
+					.setTitle(`Playlist not found.`);
+				message.channel.send(embed);
+				return;
+			}
+
+			if (userList.songs.length === 0)
+			{
+				let embed = new MessageEmbed()
+					.setTitle(`This playlist is empty.`);
+					message.channel.send(embed);
+			}
+
+			// This is a hack because ending the current stream would make it move on to the next song, and since we're adding
+			// new songs to the queue it would go to the first song in the list.
+			let bWasQueuePlaying = isQueuePlaying(serverQueue);
+			if (serverQueue)
+			{	
+				if (bWasQueuePlaying)
+				{
+					serverQueue.playingIndex = -1;
+				}
+
+				cleanUpServerQueue(serverQueue);
+			}
+			else
+			{
+				try
+				{
+					serverQueue = await createServerQueueAndJoinVoice(message, serverQueue);
+				}
+				catch (error)
+				{
+					// Ran into some error while creating the server queue, abort
+					return;
+				}
+			}
+
+			serverQueue.songs = userList.songs;
+			for (let song of serverQueue.songs)
+			{
+				song.addedBy = message.author.id;
+			}
+
+			let embed = new MessageEmbed()
+				.setTitle(`Queued ${serverQueue.songs.length} songs`);
+			message.channel.send(embed);
+
+			if (!bWasQueuePlaying)
+			{
+				playSong(serverQueue, 0);
+			}
+
+			break;
+		}
+
+		case "view":
+		{
+			if (!userLists || userLists.length === 0)
+			{
+				let embed = new MessageEmbed()
+					.setTitle(`You do not have any saved playlist.`);
+				message.channel.send(embed);
+				return;
+			}
+
+			let playlistStr = "";
+			for (let list of userLists)
+			{
+				playlistStr += list.name + "\n";
+			}
+
+			let embed = new MessageEmbed()
+				.setTitle(`${message.author.username}'s playlists`)
+				.setDescription(playlistStr);
+			message.channel.send(embed);
+			break;
+		}
+
+		default:
+		{
+			printUsage();
+			return;
+		}
+	}
 }
 
 async function leave(message, serverQueue)
@@ -875,6 +1153,72 @@ function userHasPermission(user, commandName)
 	return true;
 }
 
+async function createServerQueueAndJoinVoice(message)
+{
+	const voiceChannel = message.member.voice.channel;
+
+	// Creating the a new queue for our queueMap
+	let newServerQueue =
+	{
+		defaultTextChannel: message.channel, // to automatically send errors when not responding to a specific user message.
+		voiceChannel: voiceChannel,
+		connection: null,
+		songs: [],
+		volume: 5,
+		playingIndex: -1,
+		looping: false,
+	};
+
+	// Add to queueMap
+	queueMap.set(message.guild.id, newServerQueue);
+
+	// Join the voicechat
+	try
+	{
+		newServerQueue.connection = await voiceChannel.join();
+		newServerQueue.connection.voice.setSelfDeaf(true);
+	}
+	catch (error)
+	{
+		queueMap.delete(message.guild.id);
+
+		let embed = new MessageEmbed()
+			.setTitle("Unexpected error joining voice chat.")
+			.setDescription("Error: " + error)
+			.setFooter("Please try again or bonk Frosty");
+
+		cleanUpServerQueue(newServerQueue, message.guild.id, true);
+		message.channel.send(embed);
+
+		throw(error);
+	}
+
+	return newServerQueue;
+}
+
+async function cleanUpServerQueue(serverQueue, guildId = -1, bDeleteQueue = false, bLeaveVoice = false)
+{
+	if (serverQueue)
+	{
+		serverQueue.songs = [];
+
+		if (serverQueue.connection && serverQueue.connection.dispatcher)
+		{
+			serverQueue.connection.dispatcher.end();
+		}
+
+		if (bLeaveVoice && serverQueue.voiceChannel)
+		{
+			serverQueue.voiceChannel.leave();
+		}
+	}
+
+	if (bDeleteQueue && guildId >= 0)
+	{
+		queueMap.delete(guildId);
+	}
+}
+
 /// Helper functions /// 
 function channelQueueCheck(message, serverQueue, dispatcherCheck = false, connectionCheck = true)
 {
@@ -913,9 +1257,9 @@ function channelQueueCheck(message, serverQueue, dispatcherCheck = false, connec
 	return true;
 }
 
-function parseQueue(message, serverQueue, pageIndex)
+function parseQueue(message, pageIndex, songs, playingIndex, hasActiveSong)
 {
-	const numSongs = serverQueue.songs.length;
+	const numSongs = songs.length;
 	const numPages = Math.ceil(numSongs / numSongsPerQueuePage);
 
 	if (pageIndex < 0 || pageIndex >= numPages)
@@ -933,8 +1277,8 @@ function parseQueue(message, serverQueue, pageIndex)
 
 	for (let songIndex = startIndex; songIndex <= endIndex; ++songIndex)
 	{
-		const song = serverQueue.songs[songIndex];
-		const bIsCurrentSong = (songIndex === serverQueue.playing) && isQueuePlaying(serverQueue);
+		const song = songs[songIndex];
+		const bIsCurrentSong = (songIndex === playingIndex) && hasActiveSong;
 
 		if (bIsCurrentSong)
 		{
@@ -954,22 +1298,10 @@ function parseQueue(message, serverQueue, pageIndex)
 
 function isQueuePlaying(serverQueue)
 {
-	return serverQueue.connection.dispatcher != null;
+	return serverQueue && serverQueue.connection && serverQueue.connection.dispatcher;
 }
 
-function cleanUpServerState(serverQueue)
-{
-	serverQueue.songs = [];
-
-	if (serverQueue.connection.dispatcher)
-	{
-		serverQueue.connection.dispatcher.end();
-	}
-
-	queueMap.delete(message.guild.id);
-}
-
-function getPrefixForServer(server)
+function getServerPrefix(server)
 {
 	for (let serverPrefix of serverPrefixes)
 	{
@@ -982,10 +1314,43 @@ function getPrefixForServer(server)
 	return defaultPrefix;
 }
 
+function setServerPrefix(serverId, newPrefix)
+{
+	let foundPrefixEntry = false;
+	for (let i = 0; i < serverPrefixes.length; ++i)
+	{
+		let serverPrefix = serverPrefixes[i];
+		if (serverPrefix.serverId === serverId)
+		{
+			if (newPrefix === defaultPrefix)
+			{
+				serverPrefixes.splice(i, 1);
+			}
+			else
+			{
+				serverPrefix.prefix = newPrefix;
+			}
+
+			foundPrefixEntry = true;
+			break;
+		}
+	}
+
+	if (!foundPrefixEntry)
+	{
+		// Put this into the json obj array
+		serverPrefixes.push(
+		{
+			"serverId" : serverId,
+			"prefix" : newPrefix
+		});
+	}
+}
+
 function parseMessageToArgs(message)
 {
 	let commandName;
-	const prefix = getPrefixForServer(message.guild);
+	const prefix = getServerPrefix(message.guild);
 	const args = message.content.split(" ");
 
 	let extraArgs = "";
@@ -993,13 +1358,15 @@ function parseMessageToArgs(message)
 	if (message.content.startsWith(prefix))
 	{
 		commandName = args[0].slice(prefix.length);
-		extraArgs = args.slice(1).join(" ");
+		extraArgsList = args.slice(1); // skips [prefix][command name]
 	}
 	else
 	{
 		commandName = (args.length > 1) ? args[1] : "";
-		extraArgs = args.slice(2).join(" ");
+		extraArgsList = args.slice(2); // skips the mention and command name
 	}
+
+	extraArgs = extraArgsList.join(" ");
 
 	// Convert aliases to names
 	for (let command of commands)
@@ -1018,34 +1385,50 @@ function parseMessageToArgs(message)
 	const outArgs =
 	{
 		commandName: commandName,
-		extraArgs: extraArgs
+		extraArgs: extraArgs,
+		extraArgsList: extraArgsList
 	}
 
 	return outArgs;
 }
 
-function setServerPrefix(serverId, newPrefix)
+function parseTimeString(timeStr, outSeconds)
 {
-	let modified = false;
-	for (let serverPrefix of serverPrefixes)
+	if (timeStr === "")
 	{
-		if (serverPrefix.serverId === serverId)
-		{
-			serverPrefix.prefix = newPrefix;
-			modified = true;
-			break;
-		}
+		return -1;
 	}
 
-	if (!modified)
+	// Split the string at the colons (HH:MM:SS format)
+	let timeArgs = timeStr.split(':'); 
+	if (timeArgs.length <= 0)
 	{
-		// Put this into the json obj array
-		serverPrefixes.push(
-		{
-			"serverId" : serverId,
-			"prefix" : newPrefix
-		});
+		return -1;
 	}
+
+	// Parse to int, returning on error
+	let timeNums = [];
+	for (let timeArg of timeArgs)
+	{
+		const timeNum = parseInt(timeArg);
+		if (isNaN(timeNum))
+		{
+			return -1;
+		}
+		if (timeNum < 0)
+		{
+			return -1;
+		}
+		timeNums.push(timeNum);
+	}
+
+	let seconds = 0;
+	for (let i = timeNums.length - 1; i >= 0; --i)
+	{
+		seconds += Math.pow(60, timeNums.length - 1 - i) * timeNums[i];
+	}
+
+	return seconds;
 }
 
 // TODO: More testing to check if stuff that cant be played (member content/private vids, etc.) breaks anything
