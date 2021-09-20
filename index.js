@@ -362,17 +362,15 @@ async function queueSong(message, serverQueue)
 		return message.channel.send(embed);
 	}
 
-	if (!serverQueue)
+	// BOT ENTRY - this command allows the bot to join the channel and start queue
+	try
 	{
-		try
-		{
-			serverQueue = await createServerQueueAndJoinVoice(message, serverQueue);
-		}
-		catch (error)
-		{
-			// Ran into some error while creating the server queue, abort
-			return;
-		}
+		serverQueue = await createServerQueueAndJoinVoiceIfNeeded(message, serverQueue);
+	}
+	catch (error)
+	{
+		// Ran into some error while creating the server queue, abort
+		return;
 	}
 
 	// Resolve the requested content into a list of songs to add
@@ -1024,31 +1022,28 @@ async function list(message, serverQueue)
 					message.channel.send(embed);
 			}
 
+			// BOT ENTRY - this command allows the bot to join the channel and start queue
+			try
+			{
+				serverQueue = await createServerQueueAndJoinVoiceIfNeeded(message, serverQueue);
+			}
+			catch (error)
+			{
+				// Ran into some error while creating the server queue, abort
+				return;
+			}
+
 			// This is a hack because ending the current stream would make it move on to the next song, and since we're adding
 			// new songs to the queue it would go to the first song in the list.
 			let bWasQueuePlaying = isQueuePlaying(serverQueue);
-			if (serverQueue)
-			{	
-				if (bWasQueuePlaying)
-				{
-					serverQueue.playingIndex = -1;
-				}
-
-				cleanUpServerQueue(serverQueue);
-			}
-			else
+			if (bWasQueuePlaying)
 			{
-				try
-				{
-					serverQueue = await createServerQueueAndJoinVoice(message, serverQueue);
-				}
-				catch (error)
-				{
-					// Ran into some error while creating the server queue, abort
-					return;
-				}
+				serverQueue.playingIndex = -1;
 			}
 
+			cleanUpServerQueue(serverQueue);
+			
+			// Add the new songs from the playlist
 			serverQueue.songs = userList.songs;
 			for (let song of serverQueue.songs)
 			{
@@ -1153,47 +1148,58 @@ function userHasPermission(user, commandName)
 	return true;
 }
 
-async function createServerQueueAndJoinVoice(message)
+async function createServerQueueAndJoinVoiceIfNeeded(message, serverQueue)
 {
 	const voiceChannel = message.member.voice.channel;
 
-	// Creating the a new queue for our queueMap
-	let newServerQueue =
+	if (!serverQueue)
 	{
-		defaultTextChannel: message.channel, // to automatically send errors when not responding to a specific user message.
-		voiceChannel: voiceChannel,
-		connection: null,
-		songs: [],
-		volume: 5,
-		playingIndex: -1,
-		looping: false,
-	};
+		// Creating the a new queue for our queueMap
+		let newServerQueue =
+		{
+			defaultTextChannel: message.channel, // to automatically send errors when not responding to a specific user message.
+			voiceChannel: voiceChannel,
+			connection: null,
+			songs: [],
+			volume: 5,
+			playingIndex: -1,
+			looping: false,
+		};
 
-	// Add to queueMap
-	queueMap.set(message.guild.id, newServerQueue);
-
-	// Join the voicechat
-	try
-	{
-		newServerQueue.connection = await voiceChannel.join();
-		newServerQueue.connection.voice.setSelfDeaf(true);
-	}
-	catch (error)
-	{
-		queueMap.delete(message.guild.id);
-
-		let embed = new MessageEmbed()
-			.setTitle("Unexpected error joining voice chat.")
-			.setDescription("Error: " + error)
-			.setFooter("Please try again or bonk Frosty");
-
-		cleanUpServerQueue(newServerQueue, message.guild.id, true);
-		message.channel.send(embed);
-
-		throw(error);
+		// Add to queueMap
+		queueMap.set(message.guild.id, newServerQueue);
+		serverQueue = newServerQueue;
 	}
 
-	return newServerQueue;
+	const myVoiceChannel = message.guild.me.voice.channel;
+
+	if (!myVoiceChannel)
+	{
+		// Join the voicechat
+		try
+		{
+			serverQueue.connection = await voiceChannel.join();
+			serverQueue.connection.voice.setSelfDeaf(true);
+			serverQueue.connection.on("disconnect", () =>
+			{
+				cleanUpServerQueue(serverQueue, message.guild.id, true);
+			});
+		}
+		catch (error)
+		{
+			let embed = new MessageEmbed()
+				.setTitle("Unexpected error joining voice chat.")
+				.setDescription("Error: " + error)
+				.setFooter("Please try again or bonk Frosty");
+			message.channel.send(embed);
+
+			cleanUpServerQueue(serverQueue, message.guild.id, true);
+
+			throw(error);
+		}
+	}
+
+	return serverQueue;
 }
 
 async function cleanUpServerQueue(serverQueue, guildId = -1, bDeleteQueue = false, bLeaveVoice = false)
